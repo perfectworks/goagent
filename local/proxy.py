@@ -181,6 +181,19 @@ import httplib
 import urllib2
 import threading
 
+class ResourceUtil():
+    @classmethod
+    def path(self, path):
+        if os.path.isabs(path):
+            return path
+
+        if len(sys.argv) is 1:
+            dirname = os.path.dirname(__file__)
+        else:
+            dirname = sys.argv[1]
+
+        return os.path.join(dirname, path)
+
 class CertUtil(object):
     """CertUtil module, based on mitmproxy"""
 
@@ -218,16 +231,18 @@ class CertUtil(object):
     @staticmethod
     def dump_ca(keyfile='CA.key', certfile='CA.crt'):
         key, ca = CertUtil.create_ca()
-        with open(keyfile, 'wb') as fp:
+        with open(ResourceUtil.path(keyfile), 'wb') as fp:
             fp.write(OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_PEM, key))
-        with open(certfile, 'wb') as fp:
+        with open(ResourceUtil.path(certfile), 'wb') as fp:
             fp.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, ca))
 
     @staticmethod
     def _get_cert(commonname, certdir='certs', ca_keyfile='CA.key', ca_certfile='CA.crt', sans = []):
-        with open(ca_keyfile, 'rb') as fp:
+        certdir = ResourceUtil.path(certdir)
+
+        with open(ResourceUtil.path(ca_keyfile), 'rb') as fp:
             key = OpenSSL.crypto.load_privatekey(OpenSSL.crypto.FILETYPE_PEM, fp.read())
-        with open(ca_certfile, 'rb') as fp:
+        with open(ResourceUtil.path(ca_certfile), 'rb') as fp:
             ca = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, fp.read())
 
         pkey = OpenSSL.crypto.PKey()
@@ -270,16 +285,18 @@ class CertUtil(object):
         cert.sign(key, 'sha1')
 
         keyfile  = os.path.join(certdir, commonname + '.key')
-        with open(keyfile, 'wb') as fp:
+        with open(ResourceUtil.path(keyfile), 'wb') as fp:
             fp.write(OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_PEM, pkey))
         certfile = os.path.join(certdir, commonname + '.crt')
-        with open(certfile, 'wb') as fp:
+        with open(ResourceUtil.path(certfile), 'wb') as fp:
             fp.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert))
 
         return keyfile, certfile
 
     @staticmethod
     def get_cert(commonname, certdir='certs', ca_keyfile='CA.key', ca_certfile='CA.crt', sans = []):
+        certdir = ResourceUtil.path(certdir)
+
         if len(commonname) >= 32 and commonname.count('.') >= 2:
             commonname = re.sub(r'^[^\.]+', '', commonname)
         keyfile  = os.path.join(certdir, commonname + '.key')
@@ -297,7 +314,7 @@ class CertUtil(object):
     @staticmethod
     def check_ca():
         #Check CA exists
-        capath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'CA.key')
+        capath = ResourceUtil.path('CA.key')
         if not os.path.exists(capath):
             if not OpenSSL:
                 logging.critical('CA.key is not exist and OpenSSL is disabled, ABORT!')
@@ -313,7 +330,7 @@ class CertUtil(object):
         if cmd and os.system(cmd) != 0:
             logging.warning('GoAgent install trusted root CA certificate failed, Please run goagent by administrator/root.')
             #Check Certs Dir
-        certdir = os.path.join(os.path.dirname(__file__), 'certs')
+        certdir = ResourceUtil.path('certs')
         if not os.path.exists(certdir):
             os.makedirs(certdir)
 
@@ -792,7 +809,7 @@ class Common(object):
         """load config from proxy.ini"""
         ConfigParser.RawConfigParser.OPTCRE = re.compile(r'(?P<option>[^=\s][^=]*)\s*(?P<vi>[=])\s*(?P<value>.*)$')
         self.CONFIG = ConfigParser.ConfigParser()
-        self.CONFIG.read(os.path.join(os.path.dirname(__file__), __config__))
+        self.CONFIG.read(ResourceUtil.path(__config__))
 
         self.LISTEN_IP            = self.CONFIG.get('listen', 'ip')
         self.LISTEN_PORT          = self.CONFIG.getint('listen', 'port')
@@ -1648,6 +1665,8 @@ class Autoproxy2Pac(object):
                     jsCode.insert(0, jsLine)
         return '\n'.join(jsCode)
     def generate_pac(self, filename):
+        filename = ResourceUtil.path(file)
+
         rulelist = self._fetch_rulelist()
         jsrule   = self._rule2js(rulelist, indent=4)
         if os.path.isfile(filename):
@@ -1662,6 +1681,8 @@ class Autoproxy2Pac(object):
         return content
     @classmethod
     def update_filename(cls, filename, url, proxy, check_mtime=False):
+        filename = ResourceUtil.path(file)
+
         if check_mtime and time.time() - os.path.getmtime(filename) < 10:
             return
         logging.info('autoproxy pac filename=%r out of date, try update it', filename)
@@ -1681,7 +1702,8 @@ def pacserver_handler(sock, address, hls={}):
             return rfile.close()
         raise
 
-    filename = os.path.join(os.path.dirname(__file__), common.PAC_FILE)
+    filename = ResourceUtil.path(common.PAC_FILE)
+
     if 'mtime' not in hls:
         hls['mtime'] = os.path.getmtime(filename)
     if time.time() - hls['mtime'] > 60*60*12:
@@ -1772,14 +1794,14 @@ def pre_start():
                 common.LOVE_TIMESTAMP = int(common.LOVE_TIMESTAMP)
             else:
                 common.LOVE_TIMESTAMP = int(time.time())
-                with open(__config__, 'w') as fp:
+                with open(ResourceUtil.path(__config__), 'w') as fp:
                     common.CONFIG.set('love', 'timestamp', int(time.time()))
                     common.CONFIG.write(fp)
             if time.time() - common.LOVE_TIMESTAMP > 86400 and random.randint(1,10) > 5:
                 title = ctypes.create_unicode_buffer(1024)
                 ctypes.windll.kernel32.GetConsoleTitleW(ctypes.byref(title), len(title)-1)
                 ctypes.windll.kernel32.SetConsoleTitleW(u'%s %s' % (title.value, random.choice(common.LOVE_TIP)))
-                with open(__config__, 'w') as fp:
+                with open(ResourceUtil.path(__config__), 'w') as fp:
                     common.CONFIG.set('love', 'timestamp', int(time.time()))
                     common.CONFIG.write(fp)
         if '360safe' in os.popen('tasklist').read().lower():
